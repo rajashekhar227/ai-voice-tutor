@@ -61,3 +61,43 @@ class PDFService:
         document.close()
 
         return pages
+    def reconstruct_page(self, blocks):
+
+        filtered_blocks = []
+
+        for block in blocks:
+
+            text = block["text"].strip()
+
+            if text == "2024-25":
+                continue
+
+            filtered_blocks.append(block)
+
+        # Separate left and right columns
+        left_blocks = []
+        right_blocks = []
+
+        for block in filtered_blocks:
+
+            if block["x0"] < 310:
+                left_blocks.append(block)
+            else:
+                right_blocks.append(block)
+
+        # Sort each column from top to bottom
+        left_blocks.sort(key=lambda block: block["y0"])
+        right_blocks.sort(key=lambda block: block["y0"])
+
+        # Combine columns
+        ordered_blocks = left_blocks + right_blocks
+
+        text_parts = []
+
+        for block in ordered_blocks:
+            text_parts.append(block["text"])
+
+        return "\n\n".join(text_parts)
+    def clean_text(self, text):
+        text = " ".join(text.split())
+        return text
