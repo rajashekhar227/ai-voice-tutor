@@ -105,7 +105,7 @@ class PDFService:
             text = text.replace(title + " " + title,title,1)
         text = text.replace("P aheli", "Paheli")
         return text.strip()
-    def create_chunks(self, text, chunk_size=700, overlap=100):
+    def create_chunks(self, text, chunk_size=300, overlap=50):
         words = text.split()
         chunks = []
         start = 0
