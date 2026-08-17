@@ -17,7 +17,7 @@ class PDFService:
 
             if subject_folder.is_dir():
 
-                pdfs = sorted(subject_folder.glob("*.pdf"))
+                pdfs = sorted(subject_folder.rglob("*.pdf"))
 
                 subjects[subject_folder.name] = pdfs
 
@@ -101,9 +101,16 @@ class PDFService:
     def clean_text(self, text):
         text = " ".join(text.split())
         title = "CROP PRODUCTION AND MANAGEMENT"
-        if text.startswith(title + " " + title):
-            text = text.replace(title + " " + title,title,1)
+        while text.count(title) > 1:
+            text = text.replace(
+            title,
+            "",
+            1)
         text = text.replace("P aheli", "Paheli")
+        text = text.replace("SCIENCE", "")
+        import re
+        text = re.sub(r"\b\d{1,3}\b(?=\s|$)", "", text)
+        text = " ".join(text.split())
         return text.strip()
     def create_chunks(self, text, chunk_size=300, overlap=50):
         words = text.split()
