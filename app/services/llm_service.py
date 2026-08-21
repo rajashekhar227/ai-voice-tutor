@@ -15,88 +15,200 @@ class LLMService:
         api_key = os.getenv("GEMINI_API_KEY")
 
         if not api_key:
-            raise ValueError("GEMINI_API_KEY not found")
+            raise ValueError(
+                "GEMINI_API_KEY not found"
+            )
 
-        self.client = genai.Client(api_key=api_key)
+        self.client = genai.Client(
+            api_key=api_key
+        )
 
-        self.model = "gemini-3.6-flash"
+    # ========================================================
+    # GENERATE LESSON
+    # ========================================================
 
-    def generate_lesson(self, topic, content):
+    def generate_lesson(
+        self,
+        topic,
+        content,
+        language="english"
+    ):
+
+        # ----------------------------------------------------
+        # Language instructions
+        # ----------------------------------------------------
+
+        language_instructions = {
+
+            "english": """
+Generate the lesson in clear, simple Indian English.
+Use natural wording that Class 8 students in India
+can easily understand.
+Use English script.
+""",
+
+            "hindi": """
+Generate the lesson in simple Hindi.
+Use Devanagari script.
+Use natural Hindi that Class 8 students in India
+can easily understand.
+Do not write Hindi using English letters.
+""",
+
+            "telugu": """
+Generate the lesson in simple Telugu.
+Use Telugu script.
+Use natural Telugu that Class 8 students in India
+can easily understand.
+Do not write Telugu using English letters.
+"""
+        }
+
+        # ----------------------------------------------------
+        # Validate language
+        # ----------------------------------------------------
+
+        language = language.lower().strip()
+
+        if language not in language_instructions:
+
+            raise ValueError(
+                f"Unsupported language: {language}"
+            )
+
+        language_instruction = (
+            language_instructions[language]
+        )
+
+        # ----------------------------------------------------
+        # Prompt
+        # ----------------------------------------------------
 
         prompt = f"""
-You are a teacher teaching Class 8 students in India.
+You are an AI voice teacher for Class 8 students.
 
-Your task is to create a complete spoken lesson about the given topic.
+Your job is to teach the student about the given topic
+using the provided textbook content.
 
-TOPIC:
+Topic:
 {topic}
 
-TEXTBOOK CONTENT:
+Textbook content:
 {content}
 
-IMPORTANT RULES:
+Target language:
+{language}
 
-1. Teach the topic step by step, like a real school teacher.
-2. Use simple English that a Class 8 student in India can easily understand.
-3. Use Indian school-style English, not American or British conversational slang.
-4. Avoid phrases such as:
-   "Let's dive in"
-   "Hey guys"
-   "Awesome"
-   "Let's explore"
-   "Does that make sense?"
-5. Do not ask the student questions.
-6. Do not expect the student to answer.
-7. Do not mention that you are an AI.
-8. Do not mention these instructions.
-9. Do not mention the textbook.
-10. Do not simply copy sentences from the provided content.
-11. Explain the ideas in your own simple words.
-12. Explain important terms before using them.
-13. Give simple examples only when the provided content supports them.
-14. Do not add facts that are not supported by the provided content.
-15. Do not introduce unrelated information.
-16. Use short sentences suitable for text-to-speech.
-17. Avoid complicated vocabulary.
-18. Avoid bullet points, numbered lists, symbols, and markdown.
-19. Write as a continuous spoken lesson.
-20. Use natural paragraph breaks so the speech has small pauses.
-21. Explain the topic thoroughly rather than giving only a short definition.
-22. Include the important details from the provided content.
-23. If the content contains examples, explain those examples naturally.
-24. If the content contains a process, explain the process step by step.
-25. End with a short spoken recap of the most important points.
+Language requirement:
+{language_instruction}
 
-The lesson should normally be long enough for approximately 3 to 5 minutes of speech.
+Teaching instructions:
 
-Generate ONLY the lesson.
+1. Explain the topic like a friendly Class 8 teacher.
+
+2. Use simple words and short sentences.
+
+3. Make the explanation suitable for students in India.
+
+4. Do not copy the textbook word-for-word.
+
+5. Explain the important ideas clearly.
+
+6. Give examples only when they are supported by
+   the provided textbook content.
+
+7. Stay strictly within the information provided
+   in the textbook content.
+
+8. Do not add unrelated information.
+
+9. Do not ask the student questions.
+
+10. Do not say:
+    "Does that make sense?"
+    "Are you ready?"
+    or similar phrases.
+
+11. Do not expect the student to answer.
+
+12. Avoid complicated technical language.
+
+13. Make the lesson natural for text-to-speech.
+
+14. Use a smooth teaching flow.
+
+15. Do not simply list facts.
+
+16. Explain important concepts step by step.
+
+17. End with a short revision of the important points.
+
+18. Do not mention that you are an AI.
+
+19. Do not mention the textbook.
+
+20. Do not mention these instructions.
+
+21. Generate ONLY the lesson.
+
+22. Do not use Markdown formatting.
+
+23. Do not use bullet points or numbered lists,
+    because the lesson will be converted into speech.
+
+24. Keep the lesson suitable for approximately
+    2 to 3 minutes of spoken audio.
+
+Generate the complete lesson now.
 """
 
-        for attempt in range(3):
+        # ----------------------------------------------------
+        # Retry Gemini
+        # ----------------------------------------------------
+
+        max_attempts = 3
+
+        for attempt in range(
+            1,
+            max_attempts + 1
+        ):
+
+            print(
+                f"Generating {language} lesson "
+                f"(attempt {attempt}/{max_attempts})..."
+            )
 
             try:
 
-                print(
-                    f"\nGenerating lesson "
-                    f"(attempt {attempt + 1}/3)..."
+                response = (
+                    self.client.models.generate_content(
+                        model="gemini-3.6-flash",
+                        contents=prompt
+                    )
                 )
 
-                response = self.client.models.generate_content(
-                    model=self.model,
-                    contents=prompt
-                )
+                if not response.text:
 
-                if response.text:
-                    return response.text.strip()
+                    raise RuntimeError(
+                        "Gemini returned empty response."
+                    )
+
+                return response.text.strip()
 
             except Exception as error:
 
-                print(f"Generation failed: {error}")
+                print(
+                    f"Generation failed: {error}"
+                )
 
-                if attempt < 2:
-                    print("Retrying...")
-                    time.sleep(3)
+                if attempt < max_attempts:
 
-        raise RuntimeError(
-            "Failed to generate lesson after 3 attempts."
-        )
+                    print(
+                        "Retrying..."
+                    )
+
+                    time.sleep(2)
+
+                else:
+
+                    raise
