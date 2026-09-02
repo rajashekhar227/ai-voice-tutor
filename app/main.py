@@ -1,10 +1,9 @@
-
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
-
+from twilio.twiml.voice_response import VoiceResponse, Gather
 
 # ============================================================
 # APP
@@ -16,12 +15,15 @@ app = FastAPI(
     version="1.0.0"
 )
 
-
 # ============================================================
 # PATHS
 # ============================================================
 
 AUDIO_DIRECTORY = Path("data/audio").resolve()
+
+# IMPORTANT:
+# This is your CURRENT Cloudflare URL.
+PUBLIC_BASE_URL = "https://cedar-codes-lab-genealogy.trycloudflare.com"
 
 
 # ============================================================
@@ -48,32 +50,46 @@ class TopicRequest(BaseModel):
 # ============================================================
 
 LESSONS = {
+
     "english": {
+
         "science": {
+
             "1": {
                 "topic": "Kharif Crops",
                 "file": "hesc1dd_kharif_crops_english.wav"
             }
+
         }
+
     },
 
     "hindi": {
+
         "science": {
+
             "1": {
                 "topic": "Kharif Crops",
                 "file": "hesc1dd_kharif_crops_hindi.wav"
             }
+
         }
+
     },
 
     "telugu": {
+
         "science": {
+
             "1": {
                 "topic": "Kharif Crops",
                 "file": "hesc1dd_kharif_crops_telugu.wav"
             }
+
         }
+
     }
+
 }
 
 
@@ -91,7 +107,7 @@ def home():
 
 
 # ============================================================
-# START IVR
+# START IVR - JSON TEST API
 # ============================================================
 
 @app.get("/ivr")
@@ -109,7 +125,7 @@ def start_ivr():
 
 
 # ============================================================
-# LANGUAGE SELECTION
+# LANGUAGE SELECTION - JSON TEST API
 # ============================================================
 
 @app.post("/ivr/language")
@@ -144,7 +160,7 @@ def select_language(request: DigitRequest):
 
 
 # ============================================================
-# SUBJECT SELECTION
+# SUBJECT SELECTION - JSON TEST API
 # ============================================================
 
 @app.post("/ivr/subject")
@@ -153,7 +169,6 @@ def select_subject(request: SubjectRequest):
     language = request.language.lower()
     digit = request.digit
 
-    # Check language
     if language not in LESSONS:
 
         return {
@@ -187,7 +202,7 @@ def select_subject(request: SubjectRequest):
 
 
 # ============================================================
-# TOPIC SELECTION
+# TOPIC SELECTION - JSON TEST API
 # ============================================================
 
 @app.post("/ivr/topic")
@@ -197,7 +212,6 @@ def select_topic(request: TopicRequest):
     subject = request.subject.lower()
     digit = request.digit
 
-    # Check language
     if language not in LESSONS:
 
         return {
@@ -205,7 +219,6 @@ def select_topic(request: TopicRequest):
             "message": "Invalid language"
         }
 
-    # Check subject
     if subject not in LESSONS[language]:
 
         return {
@@ -213,7 +226,6 @@ def select_topic(request: TopicRequest):
             "message": "Invalid subject"
         }
 
-    # Find lesson
     lesson = LESSONS[language][subject].get(digit)
 
     if lesson is None:
@@ -230,7 +242,6 @@ def select_topic(request: TopicRequest):
 
     audio_path = AUDIO_DIRECTORY / filename
 
-    # Check audio exists
     if not audio_path.exists():
 
         return {
@@ -250,6 +261,406 @@ def select_topic(request: TopicRequest):
 
 
 # ============================================================
+# EXOTEL - PASSTHRU TEST
+# ============================================================
+
+@app.get("/ivr/exotel")
+async def exotel_ivr(request: Request):
+
+    params = dict(request.query_params)
+
+    digits = params.get("digits", "")
+
+    # Exotel may send the digit with quotes.
+    digits = digits.strip('"')
+
+    print("Exotel request:", params)
+    print("Key pressed:", digits)
+
+    return {
+        "status": "success",
+        "digit": digits
+    }
+
+
+# ============================================================
+# TWILIO - INCOMING CALL
+# ============================================================
+
+@app.post("/ivr/call")
+def twilio_call():
+
+    response = VoiceResponse()
+
+    gather = Gather(
+        action="/ivr/twilio-language",
+        method="POST",
+        num_digits=1,
+        timeout=10
+    )
+
+    gather.say(
+        "Welcome to AI Voice Tutor.",
+        language="en-US",
+        voice="alice"
+    )
+
+    gather.say(
+        "Press 1 for English. "
+        "Press 2 for Hindi. "
+        "Press 3 for Telugu.",
+        language="en-US",
+        voice="alice"
+    )
+
+    response.append(gather)
+
+    response.say(
+        "No input received. Goodbye.",
+        language="en-US",
+        voice="alice"
+    )
+
+    response.hangup()
+
+    return Response(
+        content=str(response),
+        media_type="application/xml"
+    )
+
+
+# ============================================================
+# TWILIO - LANGUAGE
+# ============================================================
+
+@app.post("/ivr/twilio-language")
+async def twilio_language(request: Request):
+
+    form = await request.form()
+
+    digit = form.get("Digits")
+
+    response = VoiceResponse()
+
+    languages = {
+        "1": "english",
+        "2": "hindi",
+        "3": "telugu"
+    }
+
+    language = languages.get(digit)
+
+    if language is None:
+
+        response.say(
+            "Invalid selection. Please try again.",
+            language="en-US",
+            voice="alice"
+        )
+
+        response.redirect(
+            f"{PUBLIC_BASE_URL}/ivr/call"
+        )
+
+        return Response(
+            content=str(response),
+            media_type="application/xml"
+        )
+
+    # --------------------------------------------------------
+    # SUBJECT MENU
+    # --------------------------------------------------------
+
+    gather = Gather(
+        action=(
+            f"{PUBLIC_BASE_URL}"
+            f"/ivr/twilio-subject?language={language}"
+        ),
+        method="POST",
+        num_digits=1,
+        timeout=10
+    )
+
+    if language == "hindi":
+
+        gather.say(
+            "Aapne Hindi chuna hai.",
+            language="hi-IN",
+            voice="alice"
+        )
+
+        gather.say(
+            "Science ke liye 1 dabayein.",
+            language="hi-IN",
+            voice="alice"
+        )
+
+    elif language == "telugu":
+
+        gather.say(
+            "Meeru Telugu enchukunnaru.",
+            language="en-IN",
+            voice="alice"
+        )
+
+        gather.say(
+            "Science kosam 1 nokkandi.",
+            language="en-IN",
+            voice="alice"
+        )
+
+    else:
+
+        gather.say(
+            "You selected English.",
+            language="en-US",
+            voice="alice"
+        )
+
+        gather.say(
+            "Press 1 for Science.",
+            language="en-US",
+            voice="alice"
+        )
+
+    response.append(gather)
+
+    response.say(
+        "No input received. Goodbye.",
+        language="en-US",
+        voice="alice"
+    )
+
+    response.hangup()
+
+    return Response(
+        content=str(response),
+        media_type="application/xml"
+    )
+
+
+# ============================================================
+# TWILIO - SUBJECT
+# ============================================================
+
+@app.post("/ivr/twilio-subject")
+async def twilio_subject(
+    request: Request,
+    language: str
+):
+
+    form = await request.form()
+
+    digit = form.get("Digits")
+
+    response = VoiceResponse()
+
+    if digit != "1":
+
+        response.say(
+            "Invalid subject selection. Goodbye.",
+            language="en-US",
+            voice="alice"
+        )
+
+        response.hangup()
+
+        return Response(
+            content=str(response),
+            media_type="application/xml"
+        )
+
+    # --------------------------------------------------------
+    # TOPIC MENU
+    # --------------------------------------------------------
+
+    gather = Gather(
+        action=(
+            f"{PUBLIC_BASE_URL}"
+            f"/ivr/twilio-topic"
+            f"?language={language}"
+            f"&subject=science"
+        ),
+        method="POST",
+        num_digits=1,
+        timeout=10
+    )
+
+    if language == "hindi":
+
+        gather.say(
+            "Aapne Science chuna hai.",
+            language="hi-IN",
+            voice="alice"
+        )
+
+        gather.say(
+            "Kharif Crops ke lesson ke liye 1 dabayein.",
+            language="hi-IN",
+            voice="alice"
+        )
+
+    elif language == "telugu":
+
+        gather.say(
+            "Meeru Science enchukunnaru.",
+            language="en-IN",
+            voice="alice"
+        )
+
+        gather.say(
+            "Kharif Crops lesson kosam 1 nokkandi.",
+            language="en-IN",
+            voice="alice"
+        )
+
+    else:
+
+        gather.say(
+            "You selected Science.",
+            language="en-US",
+            voice="alice"
+        )
+
+        gather.say(
+            "Press 1 for Kharif Crops.",
+            language="en-US",
+            voice="alice"
+        )
+
+    response.append(gather)
+
+    response.say(
+        "No input received. Goodbye.",
+        language="en-US",
+        voice="alice"
+    )
+
+    response.hangup()
+
+    return Response(
+        content=str(response),
+        media_type="application/xml"
+    )
+
+
+# ============================================================
+# TWILIO - TOPIC AND AUDIO
+# ============================================================
+
+@app.post("/ivr/twilio-topic")
+async def twilio_topic(
+    request: Request,
+    language: str,
+    subject: str
+):
+
+    form = await request.form()
+
+    digit = form.get("Digits")
+
+    response = VoiceResponse()
+
+    if digit != "1":
+
+        response.say(
+            "Invalid topic selection. Goodbye.",
+            language="en-US",
+            voice="alice"
+        )
+
+        response.hangup()
+
+        return Response(
+            content=str(response),
+            media_type="application/xml"
+        )
+
+    # --------------------------------------------------------
+    # FIND LESSON
+    # --------------------------------------------------------
+
+    lesson = (
+        LESSONS
+        .get(language, {})
+        .get(subject, {})
+        .get("1")
+    )
+
+    if lesson is None:
+
+        response.say(
+            "Lesson not found. Goodbye.",
+            language="en-US",
+            voice="alice"
+        )
+
+        response.hangup()
+
+        return Response(
+            content=str(response),
+            media_type="application/xml"
+        )
+
+    filename = lesson["file"]
+
+    audio_path = AUDIO_DIRECTORY / filename
+
+    # --------------------------------------------------------
+    # CHECK AUDIO
+    # --------------------------------------------------------
+
+    if not audio_path.exists():
+
+        response.say(
+            "The lesson audio could not be found.",
+            language="en-US",
+            voice="alice"
+        )
+
+        response.hangup()
+
+        return Response(
+            content=str(response),
+            media_type="application/xml"
+        )
+
+    # --------------------------------------------------------
+    # PUBLIC AUDIO URL
+    # --------------------------------------------------------
+
+    audio_url = (
+        f"{PUBLIC_BASE_URL}"
+        f"/audio/{filename}"
+    )
+
+    # --------------------------------------------------------
+    # PLAY LESSON
+    # --------------------------------------------------------
+
+    response.say(
+        "Starting your lesson.",
+        language="en-US",
+        voice="alice"
+    )
+
+    response.play(audio_url)
+
+    response.say(
+        "Lesson completed. Thank you for using AI Voice Tutor.",
+        language="en-US",
+        voice="alice"
+    )
+
+    response.hangup()
+
+    return Response(
+        content=str(response),
+        media_type="application/xml"
+    )
+
+
+# ============================================================
 # AUDIO FILE
 # ============================================================
 
@@ -258,7 +669,10 @@ def get_audio(filename: str):
 
     audio_path = AUDIO_DIRECTORY / filename
 
-    # Security check
+    # --------------------------------------------------------
+    # SECURITY CHECK
+    # --------------------------------------------------------
+
     try:
 
         audio_path.resolve().relative_to(
@@ -272,7 +686,10 @@ def get_audio(filename: str):
             status_code=400
         )
 
-    # File doesn't exist
+    # --------------------------------------------------------
+    # FILE DOESN'T EXIST
+    # --------------------------------------------------------
+
     if not audio_path.exists():
 
         return Response(
@@ -280,7 +697,10 @@ def get_audio(filename: str):
             status_code=404
         )
 
-    # Only WAV files
+    # --------------------------------------------------------
+    # ONLY WAV FILES
+    # --------------------------------------------------------
+
     if audio_path.suffix.lower() != ".wav":
 
         return Response(
@@ -293,4 +713,3 @@ def get_audio(filename: str):
         media_type="audio/wav",
         filename=audio_path.name
     )
-
